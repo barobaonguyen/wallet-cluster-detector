@@ -69,8 +69,10 @@ The detector ships dummy wallets only. Use [examples/winner_discovery](examples/
 
 ## Install
 
+PyPI publish is pending. Until the first PyPI release, install from GitHub:
+
 ```bash
-pip install wallet-cluster-detector
+pip install git+https://github.com/barobaonguyen/wallet-cluster-detector.git
 clusterdetect init-db
 clusterdetect doctor
 clusterdetect discover 20 --dry
