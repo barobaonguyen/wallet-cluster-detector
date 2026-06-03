@@ -21,7 +21,7 @@ dependencies = [
 ai = []
 viz = ["matplotlib>=3.7", "pandas>=2.0"]
 dev = [
-  "ruff",
+  "ruff==0.12.2",
   "mypy",
   "pytest",
   "pytest-asyncio",
