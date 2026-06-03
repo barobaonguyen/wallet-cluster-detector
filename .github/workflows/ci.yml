@@ -27,5 +27,7 @@ jobs:
       - name: Pytest
         run: pytest -q --cov=clusterdetect --cov-fail-under=75
       - name: Notebook smoke
-        run: papermill examples/cluster_backtest/notebook.ipynb /tmp/wcd-notebook.ipynb
+        run: |
+          python -m ipykernel install --user --name python3
+          papermill examples/cluster_backtest/notebook.ipynb /tmp/wcd-notebook.ipynb
         if: runner.os != 'Windows'
