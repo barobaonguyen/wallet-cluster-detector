@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: python -m pip install -e ".[dev,viz]"
+      - name: Ruff
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Mypy
+        run: mypy src/clusterdetect
+      - name: Pytest
+        run: pytest -q --cov=clusterdetect --cov-fail-under=75
+      - name: Notebook smoke
+        run: papermill examples/cluster_backtest/notebook.ipynb /tmp/wcd-notebook.ipynb
+        if: runner.os != 'Windows'

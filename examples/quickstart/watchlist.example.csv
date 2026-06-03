@@ -1,0 +1,9 @@
+address,score,label,chain
+DemoWallet_Alpha_not_a_real_address,3,demo_top,solana
+DemoWallet_Beta_not_a_real_address,2,demo_mid,solana
+DemoWallet_Gamma_not_a_real_address,1,demo_base,solana
+DemoWallet_Delta_not_a_real_address,1,demo_base,solana
+DemoWallet_Echo_not_a_real_address,2,demo_mid,solana
+DemoWallet_Foxtrot_not_a_real_address,1,demo_base,solana
+DemoWallet_Hotel_not_a_real_address,3,demo_top,solana
+DemoWallet_India_not_a_real_address,1,demo_base,solana

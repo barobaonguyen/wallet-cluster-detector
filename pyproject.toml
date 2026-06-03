@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wallet-cluster-detector"
+version = "0.1.0"
+description = "Solana smart-money wallet cluster detector, Helius survival kit, and paper-trade simulator."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "barobaonguyen" }]
+keywords = ["solana", "wallets", "clustering", "trading", "helius", "telegram"]
+dependencies = [
+  "httpx>=0.27",
+  "python-dotenv>=1.0",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+ai = []
+viz = ["matplotlib>=3.7", "pandas>=2.0"]
+dev = [
+  "ruff",
+  "mypy",
+  "pytest",
+  "pytest-asyncio",
+  "pytest-cov",
+  "papermill",
+  "nbstripout",
+]
+
+[project.scripts]
+clusterdetect = "clusterdetect.cli:main"
+wcd = "clusterdetect.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/clusterdetect"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["clusterdetect"]
+omit = [
+  "src/clusterdetect/cli.py",
+  "src/clusterdetect/commentary/gemini.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+  "if __name__ == .__main__.:",
+  "pragma: no cover",
+]

@@ -1,0 +1,6 @@
+[
+  {"signature": "demo-1", "wallet": "DemoWallet_Alpha_not_a_real_address", "timestamp": 1000, "side": "buy", "token_mint": "DemoMintA", "usd_value": 40},
+  {"signature": "demo-2", "wallet": "DemoWallet_Beta_not_a_real_address", "timestamp": 1300, "side": "buy", "token_mint": "DemoMintA", "usd_value": 30},
+  {"signature": "demo-3", "wallet": "DemoWallet_Gamma_not_a_real_address", "timestamp": 1600, "side": "buy", "token_mint": "DemoMintA", "usd_value": 20},
+  {"signature": "demo-4", "wallet": "DemoWallet_Delta_not_a_real_address", "timestamp": 4000, "side": "buy", "token_mint": "DemoMintB", "usd_value": 25}
+]
