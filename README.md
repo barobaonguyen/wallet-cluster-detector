@@ -2,7 +2,7 @@
 
 Catch Solana momentum before it trends. Detect when smart-money wallets cluster-buy the same token.
 
-![CI](https://github.com/barobaonguyen/wallet-cluster-detector/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/baronguyen001/wallet-cluster-detector/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -39,7 +39,7 @@ flowchart LR
   H[Helius + enrichers] --> P[swap parser]
   P --> C[score-weighted cluster detector]
   C --> R[rule reasoner]
-  R --> A[Telegram alert]
+  R --> A[Telegram / Discord alert]
   R --> T[paper trade]
   R -. optional .-> G[Gemini narration]
   A -. optional .-> S[scheduler]
@@ -52,8 +52,9 @@ flowchart LR
 - Score-weighted sliding-window cluster detector.
 - Rule-based signal reasoner with STRONG / OK / RISKY / SKIP outputs.
 - DexScreener, GeckoTerminal, Rugcheck, and Pump.fun enrichers. All are free public sources.
+- Optional Pump.fun graduation gate for graduated or near-graduation launch clusters.
 - Winner-discovery watchlist builder: reverse-engineer early buyers from recent winners instead of buying a list.
-- Telegram alerts, optional Gemini commentary, scheduler snippets, SQLite persistence, and a parameterized paper-trade simulator.
+- Telegram or Discord alerts, optional Gemini commentary, scheduler snippets, SQLite persistence, cluster export, rank leaderboard, and a parameterized paper-trade simulator.
 
 ## Helius free-tier survival
 
@@ -72,11 +73,45 @@ The detector ships dummy wallets only. Use [examples/winner_discovery](examples/
 PyPI publish is pending. Until the first PyPI release, install from GitHub:
 
 ```bash
-pip install git+https://github.com/barobaonguyen/wallet-cluster-detector.git
+pip install git+https://github.com/baronguyen001/wallet-cluster-detector.git
 clusterdetect init-db
 clusterdetect doctor
 clusterdetect discover 20 --dry
+clusterdetect scan --graduated-only
+clusterdetect export --format csv --out clusters.csv
+clusterdetect rank
 ```
+
+## Alerts and filters
+
+Use Telegram, Discord, or both:
+
+```yaml
+alert:
+  channel: both
+  webhook_url: https://discord.com/api/webhooks/WEBHOOK_ID/WEBHOOK_TOKEN
+```
+
+Set `DISCORD_WEBHOOK_URL` in `.env` for Discord. To only surface clusters whose target token is already graduated or near graduation on Pump.fun, set:
+
+```yaml
+filters:
+  pumpfun_graduation: true
+```
+
+Or run one scan with `clusterdetect scan --graduated-only`.
+
+## Export and leaderboard
+
+Export detected clusters from SQLite for review:
+
+```bash
+clusterdetect export --format json --out clusters.json
+clusterdetect export --format csv --out clusters.csv
+clusterdetect rank --limit 20
+```
+
+The export includes token mint, wallet count, public wallet-score total, tier flag, timestamp, and total cluster buy value.
 
 For development:
 
@@ -95,7 +130,9 @@ pytest -q
 
 ## Trawlkit case study
 
-This is one application of the `scrape -> score -> AI -> alert -> schedule` pattern used by [Trawlkit](https://github.com/barobaonguyen/Trawlkit). For free automation learning material, see [ai-automation-skills](https://github.com/barobaonguyen/ai-automation-skills).
+This is one application of the `scrape -> score -> AI -> alert -> schedule` pattern used by [Trawlkit](https://github.com/baronguyen001/Trawlkit). For free automation learning material, see [ai-automation-skills](https://github.com/baronguyen001/ai-automation-skills).
+
+-> Build the full bot with [Trawlkit](https://github.com/baronguyen001/Trawlkit).
 
 ## Disclaimer
 

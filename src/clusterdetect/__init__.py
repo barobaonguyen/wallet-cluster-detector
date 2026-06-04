@@ -1,7 +1,8 @@
 """Public API for wallet-cluster-detector."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
+from clusterdetect.alert.discord import DiscordAlerter
 from clusterdetect.alert.telegram import TelegramAlerter
 from clusterdetect.clients.enrichers import Enricher
 from clusterdetect.clients.helius import HeliusClient
@@ -17,6 +18,7 @@ __all__ = [
     "Cluster",
     "ClusterDetector",
     "ClusterScorer",
+    "DiscordAlerter",
     "Enricher",
     "Evaluation",
     "HeliusClient",

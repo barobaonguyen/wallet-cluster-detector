@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from dotenv import load_dotenv
@@ -31,6 +31,8 @@ class Config:
     helius_api_keys: list[str] = field(default_factory=list)
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
+    discord_webhook_url: str | None = None
+    alert_channel: str = "telegram"
     gemini_api_keys: list[str] | None = None
     db_path: Path = DEFAULT_DB_PATH
 
@@ -45,6 +47,7 @@ class Config:
     helius_retries: int = 5
     helius_daily_budget: int = 95_000
     alert_cooldown_minutes: int = 60
+    pumpfun_graduation: bool = False
     gemini_enabled: bool = False
     gemini_max_calls_per_day: int = 0
     gemini_min_cluster_score: int = 8
@@ -103,9 +106,21 @@ def load_config(path: str = "config.yaml", env_path: str = ".env") -> Config:
 
     load_dotenv(env_path, override=False)
     data = _yaml_config(path)
+    filters_obj = data.get("filters")
+    alert_obj = data.get("alert")
+    filters = cast(dict[str, Any], filters_obj) if isinstance(filters_obj, dict) else {}
+    alert = cast(dict[str, Any], alert_obj) if isinstance(alert_obj, dict) else {}
 
     def pick(name: str, default: Any = None) -> Any:
         return os.getenv(name, data.get(name.lower(), data.get(name, default)))
+
+    def pick_nested(env_name: str, section: dict[str, Any], key: str, default: Any = None) -> Any:
+        env_value = os.getenv(env_name)
+        if env_value is not None:
+            return env_value
+        if key in section:
+            return section[key]
+        return data.get(key, data.get(env_name.lower(), default))
 
     yaml_helius = data.get("helius_api_keys") or []
     helius_keys = _env_keys("HELIUS_API_KEY") or [_clean(k) for k in yaml_helius if _clean(k)]
@@ -121,6 +136,15 @@ def load_config(path: str = "config.yaml", env_path: str = ".env") -> Config:
             or data.get("telegram_chat_id")
         )
         or None,
+        discord_webhook_url=_clean(
+            os.getenv("DISCORD_WEBHOOK_URL")
+            or data.get("discord_webhook_url")
+            or alert.get("discord_webhook_url")
+            or alert.get("webhook_url")
+        )
+        or None,
+        alert_channel=_clean(pick_nested("ALERT_CHANNEL", alert, "channel", "telegram")).lower()
+        or "telegram",
         gemini_api_keys=gemini_keys,
         db_path=Path(_clean(pick("DB_PATH", DEFAULT_DB_PATH)) or DEFAULT_DB_PATH),
         cluster_min_wallets=_as_int(pick("CLUSTER_MIN_WALLETS"), 3),
@@ -134,6 +158,10 @@ def load_config(path: str = "config.yaml", env_path: str = ".env") -> Config:
         helius_retries=_as_int(pick("HELIUS_RETRIES"), 5),
         helius_daily_budget=_as_int(pick("HELIUS_DAILY_BUDGET"), 95_000),
         alert_cooldown_minutes=_as_int(pick("ALERT_COOLDOWN_MINUTES"), 60),
+        pumpfun_graduation=_as_bool(
+            pick_nested("PUMPFUN_GRADUATION", filters, "pumpfun_graduation", False),
+            False,
+        ),
         gemini_enabled=_as_bool(pick("GEMINI_ENABLED"), False),
         gemini_max_calls_per_day=_as_int(pick("GEMINI_MAX_CALLS_PER_DAY"), 0),
         gemini_min_cluster_score=_as_int(pick("GEMINI_MIN_CLUSTER_SCORE"), 8),
@@ -158,6 +186,10 @@ def validate_runtime_config(cfg: Config) -> list[str]:
         errors.append("HELIUS_RETRIES must be >= 1")
     if cfg.helius_daily_budget < 1:
         errors.append("HELIUS_DAILY_BUDGET must be >= 1")
+    if cfg.alert_channel not in {"telegram", "discord", "both"}:
+        errors.append("ALERT_CHANNEL must be telegram, discord, or both")
+    if cfg.alert_channel in {"discord", "both"} and not cfg.discord_webhook_url:
+        errors.append("Discord alert channel selected but DISCORD_WEBHOOK_URL is missing")
     if cfg.gemini_max_calls_per_day < 0:
         errors.append("GEMINI_MAX_CALLS_PER_DAY must be >= 0")
     if cfg.gemini_enabled and not cfg.gemini_api_keys:

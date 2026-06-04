@@ -2,3 +2,7 @@ cluster_min_wallets: 3
 cluster_window_minutes: 15
 cluster_min_total_score: 6
 min_buy_usd: 0
+alert:
+  channel: telegram
+filters:
+  pumpfun_graduation: false

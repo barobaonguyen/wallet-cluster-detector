@@ -446,9 +446,9 @@ class HeliusClient:
             self.ADDRESS_TX_URL.format(address=address),
             params=params,
             op_name=f"get_address_transactions:{address[:8]}",
-            on_4xx=lambda status: self._bump_404_and_maybe_disable(address)
-            if status == 404
-            else None,
+            on_4xx=lambda status: (
+                self._bump_404_and_maybe_disable(address) if status == 404 else None
+            ),
         )
         if not r:
             return []

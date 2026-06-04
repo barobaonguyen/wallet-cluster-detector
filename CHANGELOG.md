@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.0 - 2026-06-04
+
+- Added an opt-in Pump.fun graduation filter with `filters.pumpfun_graduation` and `clusterdetect scan --graduated-only`.
+- Added Discord webhook alerts with `alert.channel = telegram|discord|both`.
+- Added `clusterdetect export` and `clusterdetect rank` for cluster CSV/JSON export and leaderboard review.
+
 ## v0.1.0 - 2026-06-03
 
 - Initial public MIT release of `wallet-cluster-detector`.
@@ -8,7 +14,7 @@
 
 ## Roadmap
 
-- v0.2: webhook subscription adapter.
-- v0.2: Base wallet-tracking once the wallet layer is wired.
+- v0.3: webhook subscription adapter.
+- v0.3: Base wallet-tracking once the wallet layer is wired.
 - v0.3: cluster scoring by recency and public paper-trade performance.
 - v0.3: stronger anti-honeypot checks around LP and mint authority data.

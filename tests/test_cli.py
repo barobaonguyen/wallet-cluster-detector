@@ -1,6 +1,7 @@
 import pytest
 
 from clusterdetect import cli
+from clusterdetect.db import conn, upsert_wallet
 
 
 def test_cli_help(capsys):
@@ -20,6 +21,39 @@ def test_cli_init_status_pnl_schedule(capsys):
     assert "SQLite schema initialized" in out
     assert "wallet-cluster-detector status" in out
     assert "30 9 * *" in out
+
+
+def test_cli_export_and_rank(tmp_path, capsys):
+    with conn() as c:
+        upsert_wallet(c, "WalletA", "test", score=4, added_at=1)
+        upsert_wallet(c, "WalletB", "test", score=3, added_at=1)
+        upsert_wallet(c, "WalletC", "test", score=3, added_at=1)
+        c.execute(
+            """INSERT INTO clusters(token_mint, first_buy_ts, last_buy_ts, wallet_count,
+                                    wallets_json, total_usd, detected_at, notified, chain)
+               VALUES(?,?,?,?,?,?,?,0,'solana')""",
+            (
+                "DemoMint",
+                100,
+                160,
+                3,
+                '["WalletA","WalletB","WalletC"]',
+                1234.5,
+                200,
+            ),
+        )
+
+    json_out = tmp_path / "clusters.json"
+    csv_out = tmp_path / "clusters.csv"
+    assert cli.main(["export", "--format", "json", "--out", str(json_out)]) == 0
+    assert cli.main(["export", "--format", "csv", "--out", str(csv_out)]) == 0
+    assert cli.main(["rank"]) == 0
+
+    assert '"tier": "STRONG"' in json_out.read_text(encoding="utf-8")
+    assert "DemoMint" in csv_out.read_text(encoding="utf-8")
+    out = capsys.readouterr().out
+    assert "STRONG" in out
+    assert "DemoMint" in out
 
 
 @pytest.mark.asyncio

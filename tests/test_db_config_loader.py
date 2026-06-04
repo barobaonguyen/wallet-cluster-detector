@@ -18,11 +18,28 @@ def test_db_meta_and_wallet_upsert():
 
 def test_load_config_env_and_yaml(tmp_path, monkeypatch):
     cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("cluster_min_wallets: 4\nhelius_api_keys: [yaml_key]\n", encoding="utf-8")
+    cfg_file.write_text(
+        "\n".join(
+            [
+                "cluster_min_wallets: 4",
+                "helius_api_keys: [yaml_key]",
+                "alert:",
+                "  channel: discord",
+                "  webhook_url: https://discord.test/webhook",
+                "filters:",
+                "  pumpfun_graduation: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setenv("HELIUS_API_KEY", "env_key")
     cfg = load_config(str(cfg_file), str(tmp_path / ".env"))
     assert cfg.helius_api_keys == ["env_key"]
     assert cfg.cluster_min_wallets == 4
+    assert cfg.alert_channel == "discord"
+    assert cfg.discord_webhook_url == "https://discord.test/webhook"
+    assert cfg.pumpfun_graduation is True
     assert validate_runtime_config(cfg) == []
 
 

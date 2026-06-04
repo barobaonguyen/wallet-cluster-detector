@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import json
 import logging
 import sys
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
 
+from clusterdetect.alert.discord import DiscordAlerter
 from clusterdetect.alert.telegram import (
     TelegramAlerter,
     format_cluster_alert,
@@ -24,6 +27,7 @@ from clusterdetect.config import Config, load_config, validate_runtime_config
 from clusterdetect.db import conn, init_db
 from clusterdetect.domain.cluster import Cluster, ClusterDetector, save_clusters
 from clusterdetect.domain.paper_trade import PaperTrader
+from clusterdetect.domain.pumpfun import PumpfunGraduation, classify_pumpfun_graduation
 from clusterdetect.domain.reasoner import ClusterScorer
 from clusterdetect.domain.swap_parser import get_sol_price_usd, parse_swap
 from clusterdetect.schedule.cron import emit_cron, emit_launchd, emit_windows_task
@@ -50,6 +54,62 @@ def _cluster_from_row(row: dict[str, Any], scores: dict[str, int]) -> Cluster:
         wallet_scores=scores,
         total_wallet_score=sum(scores.values()),
     )
+
+
+def _cluster_tier(score: int, wallet_count: int) -> str:
+    if score >= 9 and wallet_count >= 3:
+        return "STRONG"
+    if score >= 6:
+        return "OK"
+    return "RISKY"
+
+
+def _cluster_rows_for_output() -> list[dict[str, Any]]:
+    with conn() as c:
+        wallet_scores = {
+            r["address"]: int(r["score"] or 1)
+            for r in c.execute("SELECT address, score FROM wallets").fetchall()
+        }
+        rows = [dict(r) for r in c.execute("SELECT * FROM clusters").fetchall()]
+
+    output = []
+    for row in rows:
+        wallets = json.loads(row.get("wallets_json") or "[]")
+        score = sum(wallet_scores.get(wallet, 1) for wallet in wallets)
+        timestamp = int(row.get("detected_at") or row.get("last_buy_ts") or 0)
+        output.append(
+            {
+                "token": row["token_mint"],
+                "wallet_count": int(row["wallet_count"]),
+                "score": score,
+                "tier": _cluster_tier(score, int(row["wallet_count"])),
+                "timestamp": datetime.fromtimestamp(timestamp, tz=UTC).isoformat()
+                if timestamp
+                else "",
+                "total_usd": round(float(row.get("total_usd") or 0), 2),
+            }
+        )
+    return sorted(output, key=lambda item: (item["score"], item["wallet_count"]), reverse=True)
+
+
+async def _send_alert(
+    cfg: Config,
+    msg: str,
+    telegram: TelegramAlerter,
+    discord: DiscordAlerter,
+) -> bool:
+    sent = False
+    if cfg.alert_channel in {"telegram", "both"}:
+        sent = await telegram.send(msg) or sent
+    if cfg.alert_channel in {"discord", "both"}:
+        sent = await discord.send(msg) or sent
+    return sent
+
+
+def _pumpfun_line(graduation: PumpfunGraduation) -> str:
+    if graduation.progress_pct is None:
+        return graduation.status
+    return f"{graduation.status} ({graduation.progress_pct:.1f}%)"
 
 
 async def _fetch_wallet_history(
@@ -219,7 +279,12 @@ async def _poll_wallets_once(helius: HeliusClient, cfg: Config, sol_price: float
     return inserted
 
 
-async def _scan_once(cfg: Config, *, commentary: bool = False) -> tuple[int, int]:
+async def _scan_once(
+    cfg: Config,
+    *,
+    commentary: bool = False,
+    graduated_only: bool = False,
+) -> tuple[int, int]:
     if not cfg.helius_api_keys:
         print("HELIUS_API_KEY is required for scan")
         return 0, 0
@@ -231,7 +296,8 @@ async def _scan_once(cfg: Config, *, commentary: bool = False) -> tuple[int, int
         daily_budget=cfg.helius_daily_budget,
     )
     enricher = Enricher()
-    alerter = TelegramAlerter(cfg.telegram_bot_token, cfg.telegram_chat_id)
+    telegram = TelegramAlerter(cfg.telegram_bot_token, cfg.telegram_chat_id)
+    discord = DiscordAlerter(cfg.discord_webhook_url)
     scorer = ClusterScorer()
     try:
         await helius.load_persisted_credits()
@@ -279,6 +345,14 @@ async def _scan_once(cfg: Config, *, commentary: bool = False) -> tuple[int, int
                 with conn() as c:
                     c.execute("UPDATE clusters SET notified=1 WHERE id=?", (row["id"],))
                 continue
+            if cfg.pumpfun_graduation or graduated_only:
+                pumpfun_info = await enricher.pumpfun_token(cluster.token_mint)
+                graduation = classify_pumpfun_graduation(pumpfun_info)
+                if not graduation.eligible:
+                    with conn() as c:
+                        c.execute("UPDATE clusters SET notified=1 WHERE id=?", (row["id"],))
+                    continue
+                token_info["pumpfun_graduation"] = graduation.to_dict()
             rug = await enricher.rugcheck(cluster.token_mint)
             wallet_details = [{"address": w, "score": scores.get(w, 1)} for w in wallets]
             evaluation = scorer.evaluate(cluster, token_info, rug, wallet_details)
@@ -298,11 +372,10 @@ async def _scan_once(cfg: Config, *, commentary: bool = False) -> tuple[int, int
                 )
                 if text:
                     msg += f"\n\n<b>AI commentary</b>\n{text}"
-            sent = (
-                await alerter.send(msg)
-                if cfg.telegram_bot_token and cfg.telegram_chat_id
-                else False
-            )
+            if token_info.get("pumpfun_graduation"):
+                graduation = PumpfunGraduation(**token_info["pumpfun_graduation"])
+                msg += f"\n\n<b>Pump.fun</b>: {_pumpfun_line(graduation)}"
+            sent = await _send_alert(cfg, msg, telegram, discord)
             print(
                 msg
                 if not sent
@@ -339,7 +412,11 @@ async def _scan_once(cfg: Config, *, commentary: bool = False) -> tuple[int, int
 
 async def _cmd_scan(args: argparse.Namespace, cfg: Config) -> int:
     while True:
-        new_swaps, alerted = await _scan_once(cfg, commentary=args.commentary)
+        new_swaps, alerted = await _scan_once(
+            cfg,
+            commentary=args.commentary,
+            graduated_only=args.graduated_only,
+        )
         print(f"cycle: +{new_swaps} swaps, {alerted} alerts")
         if not args.watch:
             return 0
@@ -453,6 +530,39 @@ def _cmd_pnl(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_export(args: argparse.Namespace) -> int:
+    init_db()
+    rows = _cluster_rows_for_output()
+    out_path = Path(args.out or f"clusters.{args.format}")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if args.format == "json":
+        out_path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+    else:
+        with out_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=["token", "wallet_count", "score", "tier", "timestamp", "total_usd"],
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+    print(f"exported {len(rows)} clusters to {out_path}")
+    return 0
+
+
+def _cmd_rank(args: argparse.Namespace) -> int:
+    init_db()
+    rows = _cluster_rows_for_output()[: args.limit]
+    if not rows:
+        print("No clusters found")
+        return 0
+    print("rank  tier    score wallets token")
+    for idx, row in enumerate(rows, start=1):
+        print(
+            f"{idx:>4}  {row['tier']:<6} {row['score']:>5} {row['wallet_count']:>7} {row['token']}"
+        )
+    return 0
+
+
 async def _cmd_backtest(args: argparse.Namespace, cfg: Config) -> int:
     init_db()
     end_ts = int(time.time())
@@ -512,6 +622,9 @@ async def _cmd_doctor(cfg: Config) -> int:
     print("doctor")
     print(f"Helius keys present: {len(cfg.helius_api_keys)}")
     print(f"Telegram configured: {bool(cfg.telegram_bot_token and cfg.telegram_chat_id)}")
+    print(f"Discord configured: {bool(cfg.discord_webhook_url)}")
+    print(f"Alert channel: {cfg.alert_channel}")
+    print(f"Pump.fun graduation filter: {cfg.pumpfun_graduation}")
     print(f"Gemini configured: {bool(cfg.gemini_api_keys)} enabled={cfg.gemini_enabled}")
     print(
         "cluster defaults: "
@@ -566,6 +679,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("scan")
     p.add_argument("--watch", action="store_true")
     p.add_argument("--commentary", action="store_true")
+    p.add_argument("--graduated-only", action="store_true")
 
     p = sub.add_parser("backtest")
     p.add_argument("days", nargs="?", type=int, default=30)
@@ -575,6 +689,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("pnl")
     p.add_argument("days", nargs="?", type=int, default=7)
     p.add_argument("--json", action="store_true")
+
+    p = sub.add_parser("export")
+    p.add_argument("--format", choices=["csv", "json"], default="csv")
+    p.add_argument("--out")
+
+    p = sub.add_parser("rank")
+    p.add_argument("--limit", type=int, default=20)
 
     sub.add_parser("get-chat-id")
     sub.add_parser("doctor")
@@ -610,6 +731,10 @@ async def _async_main(argv: list[str] | None = None) -> int:
         return _cmd_status()
     if args.cmd == "pnl":
         return _cmd_pnl(args)
+    if args.cmd == "export":
+        return _cmd_export(args)
+    if args.cmd == "rank":
+        return _cmd_rank(args)
     if args.cmd == "schedule":
         return _cmd_schedule(args)
     parser.print_help()
