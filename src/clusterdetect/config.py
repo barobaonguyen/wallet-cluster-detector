@@ -21,7 +21,27 @@ USDT_SOL = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 USDC = USDC_SOL
 USDT = USDT_SOL
 STABLES = {WSOL, USDC_SOL, USDT_SOL}
-STABLES_BY_CHAIN = {"solana": STABLES}
+
+# Standard public token constants on Base (8453). These are well-known canonical
+# addresses, not wallets: wrapped native plus the major stablecoins. They let the
+# EVM adapter mark stable-leg swaps the same way WSOL/USDC/USDT do on Solana.
+WETH_BASE = "0x4200000000000000000000000000000000000006"
+USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+USDBC_BASE = "0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA"
+USDT_BASE = "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2"
+STABLES_BASE = {
+    WETH_BASE.lower(),
+    USDC_BASE.lower(),
+    USDBC_BASE.lower(),
+    USDT_BASE.lower(),
+}
+
+STABLES_BY_CHAIN = {"solana": STABLES, "base": STABLES_BASE}
+
+# Free, keyless public RPC endpoints per EVM chain. Override with EVM_RPC_URL
+# (BYO endpoint) for higher rate limits.
+EVM_RPC_DEFAULTS = {"base": "https://mainnet.base.org"}
+EVM_CHAIN_IDS = {"base": 8453}
 
 DEFAULT_DB_PATH = Path(os.getenv("CLUSTERDETECT_DB_PATH", "data/clusterdetect.db"))
 
@@ -35,6 +55,8 @@ class Config:
     alert_channel: str = "telegram"
     gemini_api_keys: list[str] | None = None
     db_path: Path = DEFAULT_DB_PATH
+    evm_rpc_url: str | None = None
+    webhook_secret: str | None = None
 
     cluster_min_wallets: int = 3
     cluster_window_minutes: int = 15
@@ -147,6 +169,8 @@ def load_config(path: str = "config.yaml", env_path: str = ".env") -> Config:
         or "telegram",
         gemini_api_keys=gemini_keys,
         db_path=Path(_clean(pick("DB_PATH", DEFAULT_DB_PATH)) or DEFAULT_DB_PATH),
+        evm_rpc_url=_clean(pick("EVM_RPC_URL")) or None,
+        webhook_secret=_clean(pick("WEBHOOK_SECRET")) or None,
         cluster_min_wallets=_as_int(pick("CLUSTER_MIN_WALLETS"), 3),
         cluster_window_minutes=_as_int(pick("CLUSTER_WINDOW_MINUTES"), 15),
         cluster_min_total_score=_as_int(pick("CLUSTER_MIN_TOTAL_SCORE"), 6),

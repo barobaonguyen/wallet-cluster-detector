@@ -21,6 +21,7 @@ from clusterdetect.alert.telegram import (
     format_cluster_alert,
 )
 from clusterdetect.clients.enrichers import Enricher
+from clusterdetect.clients.evm import EvmClient
 from clusterdetect.clients.helius import HeliusClient
 from clusterdetect.commentary.gemini import generate_commentary
 from clusterdetect.config import Config, load_config, validate_runtime_config
@@ -31,6 +32,7 @@ from clusterdetect.domain.pumpfun import PumpfunGraduation, classify_pumpfun_gra
 from clusterdetect.domain.reasoner import ClusterScorer
 from clusterdetect.domain.swap_parser import get_sol_price_usd, parse_swap
 from clusterdetect.schedule.cron import emit_cron, emit_launchd, emit_windows_task
+from clusterdetect.schedule.webhook import run_server as run_webhook_server
 from clusterdetect.watchlist.discovery import discover_winners
 
 log = logging.getLogger(__name__)
@@ -410,17 +412,111 @@ async def _scan_once(
         await enricher.close()
 
 
+async def _scan_base_once(cfg: Config) -> tuple[int, int]:
+    """One Base/EVM detection cycle: read swaps on-chain, detect clusters, persist.
+
+    Runs the existing ``ClusterDetector`` over Base swaps (``chain='base'``). It is
+    additive and fully separate from the Solana path; no Helius credits are spent.
+    """
+
+    init_db()
+    with conn() as c:
+        wallets = [
+            dict(r)
+            for r in c.execute(
+                "SELECT address, score FROM wallets WHERE enabled=1 AND chain='base'"
+            ).fetchall()
+        ]
+    if not wallets:
+        print("No Base wallets in watchlist; add wallets with chain=base to scan Base.")
+        return 0, 0
+
+    evm = EvmClient(chain="base", rpc_url=cfg.evm_rpc_url)
+    inserted = 0
+    try:
+        for wallet in wallets:
+            swaps = await evm.fetch_swaps(wallet["address"])
+            if not swaps:
+                continue
+            with conn() as c:
+                for swap in swaps:
+                    if swap.get("timestamp") is None:
+                        continue
+                    cur = c.execute(
+                        """INSERT OR IGNORE INTO swaps
+                           (signature, wallet, timestamp, side, token_mint, token_amount,
+                            sol_amount, usd_value, source, raw, chain)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            swap["signature"],
+                            swap["wallet"],
+                            swap["timestamp"],
+                            swap["side"],
+                            swap["token_mint"],
+                            swap["token_amount"],
+                            swap["sol_amount"],
+                            swap["usd_value"],
+                            swap["source"],
+                            None,
+                            "base",
+                        ),
+                    )
+                    inserted += cur.rowcount if cur.rowcount > 0 else 0
+    finally:
+        await evm.close()
+
+    end_ts = int(time.time())
+    start_ts = end_ts - max(30, cfg.cluster_window_minutes * 2) * 60
+    with conn() as c:
+        rows = [
+            dict(r)
+            for r in c.execute(
+                """SELECT * FROM swaps WHERE timestamp BETWEEN ? AND ? AND side='buy' AND chain='base'
+                   ORDER BY timestamp""",
+                (start_ts, end_ts),
+            ).fetchall()
+        ]
+        wallet_scores = {
+            r["address"]: r["score"] or 1
+            for r in c.execute(
+                "SELECT address, score FROM wallets WHERE enabled=1 AND chain='base'"
+            ).fetchall()
+        }
+    detector = ClusterDetector(
+        min_wallets=cfg.cluster_min_wallets,
+        window_minutes=cfg.cluster_window_minutes,
+        min_total_score=cfg.cluster_min_total_score,
+        min_usd=cfg.min_buy_usd,
+    )
+    clusters = detector.detect(rows, wallet_scores)
+    found = save_clusters(list(clusters), chain="base")
+    return inserted, found
+
+
 async def _cmd_scan(args: argparse.Namespace, cfg: Config) -> int:
+    chain = getattr(args, "chain", "solana")
     while True:
-        new_swaps, alerted = await _scan_once(
-            cfg,
-            commentary=args.commentary,
-            graduated_only=args.graduated_only,
-        )
-        print(f"cycle: +{new_swaps} swaps, {alerted} alerts")
+        if chain == "base":
+            new_swaps, found = await _scan_base_once(cfg)
+            print(f"cycle (base): +{new_swaps} swaps, {found} clusters")
+        else:
+            new_swaps, alerted = await _scan_once(
+                cfg,
+                commentary=args.commentary,
+                graduated_only=args.graduated_only,
+            )
+            print(f"cycle: +{new_swaps} swaps, {alerted} alerts")
         if not args.watch:
             return 0
         await asyncio.sleep(max(1, cfg.poll_interval_seconds))
+
+
+def _cmd_webhook(args: argparse.Namespace, cfg: Config) -> int:
+    init_db()
+    print(f"Starting webhook receiver on http://{args.host}:{args.port} (Ctrl-C to stop)")
+    print("Point your Helius webhook here and set WEBHOOK_SECRET to a shared secret.")
+    run_webhook_server(cfg, host=args.host, port=args.port, secret=args.secret)
+    return 0
 
 
 async def _cmd_discover(args: argparse.Namespace, cfg: Config) -> int:
@@ -680,6 +776,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--watch", action="store_true")
     p.add_argument("--commentary", action="store_true")
     p.add_argument("--graduated-only", action="store_true")
+    p.add_argument(
+        "--chain",
+        choices=["solana", "base"],
+        default="solana",
+        help="Chain to scan; 'base' uses the keyless EVM read adapter (default solana).",
+    )
+
+    p = sub.add_parser("webhook")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8787)
+    p.add_argument("--secret", help="Shared secret; falls back to WEBHOOK_SECRET env.")
 
     p = sub.add_parser("backtest")
     p.add_argument("days", nargs="?", type=int, default=30)
@@ -721,6 +828,8 @@ async def _async_main(argv: list[str] | None = None) -> int:
         return await _cmd_fetch(args, cfg)
     if args.cmd == "scan":
         return await _cmd_scan(args, cfg)
+    if args.cmd == "webhook":
+        return _cmd_webhook(args, cfg)
     if args.cmd == "backtest":
         return await _cmd_backtest(args, cfg)
     if args.cmd == "get-chat-id":

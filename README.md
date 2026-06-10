@@ -1,6 +1,6 @@
 # wallet-cluster-detector
 
-Catch Solana momentum before it trends. Detect when smart-money wallets cluster-buy the same token.
+Catch Solana (and now Base) momentum before it trends. Detect when smart-money wallets cluster-buy the same token.
 
 ![CI](https://github.com/baronguyen001/wallet-cluster-detector/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -50,6 +50,8 @@ flowchart LR
 - Helius client with rate-limit, circuit breaker, multi-key rotation, daily budget, signature-first polling, and redacted logs.
 - Swap parser for Helius enhanced SWAP transactions, including raw amount formats and inner swap fallback.
 - Score-weighted sliding-window cluster detector.
+- Keyless **Base / EVM read adapter**: reconstructs swaps from on-chain ERC-20 transfers, normalized to the same swap shape, so detection runs on Base via `scan --chain base`.
+- Inbound **webhook receiver**: accepts a signature-verified Helius-style swap payload for lower-latency cluster capture, no extra polling credits.
 - Rule-based signal reasoner with STRONG / OK / RISKY / SKIP outputs.
 - DexScreener, GeckoTerminal, Rugcheck, and Pump.fun enrichers. All are free public sources.
 - Optional Pump.fun graduation gate for graduated or near-graduation launch clusters.
@@ -112,6 +114,34 @@ clusterdetect rank --limit 20
 ```
 
 The export includes token mint, wallet count, public wallet-score total, tier flag, timestamp, and total cluster buy value.
+
+## Base / EVM (opt-in)
+
+The detector started Solana-only. v0.3.0 adds a keyless **Base** read adapter that reconstructs swaps from on-chain ERC-20 `Transfer` logs and normalizes them into the same swap shape, so the existing cluster detector runs on Base unchanged. The default Solana path is untouched.
+
+```bash
+# Offline demo (no RPC, no keys):
+python examples/base_adapter/run_base.py
+
+# Live: add wallets with chain=base to your watchlist, then opt in:
+clusterdetect scan --chain base
+```
+
+It reads the free public Base RPC (`https://mainnet.base.org`) by default. Bring your own endpoint via `EVM_RPC_URL` for higher rate limits. See [examples/base_adapter](examples/base_adapter/).
+
+## Webhook receiver (lower latency)
+
+Instead of polling Helius, run an inbound **webhook receiver** that ingests pushed swaps the moment they land and feeds them into the same pipeline. It is HMAC-SHA256 signature-verified (bring your own `WEBHOOK_SECRET`, constant-time check, no default secret) and never trades.
+
+```bash
+# Offline demo (no socket, no keys):
+python examples/webhook/post_swap.py
+
+# Live receiver — point your Helius webhook here:
+WEBHOOK_SECRET=your-shared-secret clusterdetect webhook --host 127.0.0.1 --port 8787
+```
+
+Every request must carry `X-Webhook-Signature: sha256=<hmac>`. See [examples/webhook](examples/webhook/).
 
 For development:
 
