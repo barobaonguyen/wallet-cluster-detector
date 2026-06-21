@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.0 - 2026-06-21
+
+- Added a **static HTML report** (`clusterdetect report`) that renders the
+  clusters already in the database as a single self-contained page (token, tier,
+  score, wallet count, total USD, detected-at). Pure templating, no JavaScript,
+  no network — read-only presentation of public-data clusters.
+- Added a **cluster graph export** (`clusterdetect graph --format json|dot|graphml`)
+  that reshapes detected clusters into a bipartite wallet/token graph for offline
+  visualisation in Gephi, Cytoscape or networkx. A wallet seen across clusters
+  becomes one shared node. Pure transform of existing data; collects nothing new.
+- Both are framework/presentation tooling — no new tracking or data collection.
+
 ## v0.3.0 - 2026-06-10
 
 - Added a keyless **Base / EVM read adapter** (`clusterdetect.clients.evm`) that reconstructs swaps from on-chain ERC-20 `Transfer` logs and normalizes them into the same swap shape as the Solana parser. Opt in with `clusterdetect scan --chain base`; the default Solana path is unchanged. BYO endpoint via `EVM_RPC_URL`, otherwise the free public Base RPC is used.

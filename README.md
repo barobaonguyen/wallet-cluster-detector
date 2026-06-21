@@ -115,6 +115,24 @@ clusterdetect rank --limit 20
 
 The export includes token mint, wallet count, public wallet-score total, tier flag, timestamp, and total cluster buy value.
 
+## Report and graph (read-only)
+
+Two read-only views of clusters that are *already* detected — they format what is
+in the database and collect nothing new:
+
+```bash
+# A single self-contained HTML summary page (no JS, no network)
+clusterdetect report --out clusters_report.html
+
+# A wallet/token graph for Gephi / Cytoscape / networkx
+clusterdetect graph --format graphml --out clusters.graphml
+clusterdetect graph --format dot --out clusters.dot
+clusterdetect graph --format json
+```
+
+In the graph a wallet that shows up across several clusters becomes one shared
+node, which is exactly what makes coordinated buying easy to see.
+
 ## Base / EVM (opt-in)
 
 The detector started Solana-only. v0.3.0 adds a keyless **Base** read adapter that reconstructs swaps from on-chain ERC-20 `Transfer` logs and normalizes them into the same swap shape, so the existing cluster detector runs on Base unchanged. The default Solana path is untouched.

@@ -659,6 +659,39 @@ def _cmd_rank(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    from clusterdetect.report import render_clusters_html
+
+    init_db()
+    rows = _cluster_rows_for_output()
+    out_path = Path(args.out or "clusters_report.html")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(render_clusters_html(rows), encoding="utf-8")
+    print(f"wrote HTML report for {len(rows)} clusters to {out_path}")
+    return 0
+
+
+def _cmd_graph(args: argparse.Namespace) -> int:
+    from clusterdetect.graph import build_cluster_graph, render_graph
+
+    init_db()
+    with conn() as c:
+        rows = [
+            {"token": r["token_mint"], "wallets": json.loads(r["wallets_json"] or "[]")}
+            for r in c.execute("SELECT token_mint, wallets_json FROM clusters").fetchall()
+        ]
+    graph = build_cluster_graph(rows)
+    text = render_graph(graph, args.format)
+    if args.out:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(text, encoding="utf-8")
+        print(f"wrote {len(graph.nodes)} nodes / {len(graph.edges)} edges to {out_path}")
+    else:
+        print(text, end="")
+    return 0
+
+
 async def _cmd_backtest(args: argparse.Namespace, cfg: Config) -> int:
     init_db()
     end_ts = int(time.time())
@@ -804,6 +837,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("rank")
     p.add_argument("--limit", type=int, default=20)
 
+    p = sub.add_parser("report", help="render a static HTML summary of detected clusters")
+    p.add_argument("--out", help="output HTML path (default: clusters_report.html)")
+
+    p = sub.add_parser("graph", help="export detected clusters as a wallet/token graph")
+    p.add_argument("--format", choices=["json", "dot", "graphml"], default="json")
+    p.add_argument("--out", help="output path (default: stdout)")
+
     sub.add_parser("get-chat-id")
     sub.add_parser("doctor")
     p = sub.add_parser("schedule")
@@ -844,6 +884,10 @@ async def _async_main(argv: list[str] | None = None) -> int:
         return _cmd_export(args)
     if args.cmd == "rank":
         return _cmd_rank(args)
+    if args.cmd == "report":
+        return _cmd_report(args)
+    if args.cmd == "graph":
+        return _cmd_graph(args)
     if args.cmd == "schedule":
         return _cmd_schedule(args)
     parser.print_help()
