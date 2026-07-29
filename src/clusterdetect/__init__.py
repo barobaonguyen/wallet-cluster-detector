@@ -1,9 +1,11 @@
 """Public API for wallet-cluster-detector."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from clusterdetect.alert.discord import DiscordAlerter
 from clusterdetect.alert.telegram import TelegramAlerter
+from clusterdetect.analytics.calibrate import CalibrationRow, best_rows, sweep
+from clusterdetect.analytics.performance import PerformanceSummary, summarize_trades
 from clusterdetect.clients.enrichers import Enricher
 from clusterdetect.clients.evm import EvmClient, parse_evm_logs
 from clusterdetect.clients.helius import HeliusClient
@@ -19,6 +21,7 @@ from clusterdetect.watchlist.loader import from_csv, to_csv
 
 __all__ = [
     "__version__",
+    "CalibrationRow",
     "Cluster",
     "ClusterDetector",
     "ClusterGraph",
@@ -30,9 +33,11 @@ __all__ = [
     "HeliusClient",
     "PaperTrade",
     "PaperTrader",
+    "PerformanceSummary",
     "QuotaTracker",
     "RateLimiter",
     "TelegramAlerter",
+    "best_rows",
     "build_cluster_graph",
     "from_csv",
     "get_sol_price_usd",
@@ -42,6 +47,8 @@ __all__ = [
     "render_clusters_html",
     "render_graph",
     "sign_payload",
+    "summarize_trades",
+    "sweep",
     "to_csv",
     "verify_signature",
 ]

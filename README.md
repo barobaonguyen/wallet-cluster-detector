@@ -133,6 +133,26 @@ clusterdetect graph --format json
 In the graph a wallet that shows up across several clusters becomes one shared
 node, which is exactly what makes coordinated buying easy to see.
 
+## Performance and calibration (offline)
+
+Two offline views over data that is already on disk — no network, no new collection:
+
+```bash
+# Quality metrics for the closed paper trades: win rate, expectancy, profit factor,
+# max drawdown, streaks, hold time, and a per-exit-reason breakdown.
+clusterdetect stats
+clusterdetect stats 30 --format markdown
+
+# What-if grid: re-run the detector over stored swaps for every threshold combination,
+# so min-wallets / window / score come from data instead of a guess.
+clusterdetect calibrate 30 --min-wallets 2,3,4 --window 5,15,30 --score 4,6,9
+clusterdetect calibrate --format json
+```
+
+`pnl` answers "what did each day look like", `stats` answers "what does the distribution
+look like", and `calibrate` answers "which thresholds would have been worth using".
+Both new commands take `--format text|json|markdown`.
+
 ## Base / EVM (opt-in)
 
 The detector started Solana-only. v0.3.0 adds a keyless **Base** read adapter that reconstructs swaps from on-chain ERC-20 `Transfer` logs and normalizes them into the same swap shape, so the existing cluster detector runs on Base unchanged. The default Solana path is untouched.

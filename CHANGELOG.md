@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.0 - 2026-07-29
+
+- Added **paper-trade quality metrics** (`clusterdetect stats`): win rate, expectancy,
+  profit factor, max drawdown of the simulated equity curve, win/loss streaks, median
+  hold time and a breakdown by exit reason, computed from the closed paper trades
+  already in the local database. This is the distribution view; the existing `pnl`
+  command stays the per-calendar-day view.
+- Added an offline **threshold sensitivity grid** (`clusterdetect calibrate`): re-runs the
+  existing detector over the swaps you already stored for every combination of
+  `--min-wallets`, `--window` and `--score`, so the tuning knobs can be picked from data
+  instead of guessed. It also highlights the most selective combinations that still
+  detect something. Unlike `backtest` (one configuration), this compares many side by side.
+- Both commands support `--format text|json|markdown`, so a run can be pasted straight
+  into a README, an issue or a notebook.
+- New `clusterdetect.analytics` package holding both as pure functions — no network, no
+  new data collection, no per-identity analysis: they only reshape rows already on disk.
+
 ## v0.4.0 - 2026-06-21
 
 - Added a **static HTML report** (`clusterdetect report`) that renders the

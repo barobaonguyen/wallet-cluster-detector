@@ -626,6 +626,105 @@ def _cmd_pnl(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_stats(args: argparse.Namespace) -> int:
+    from clusterdetect.analytics.performance import (
+        render_summary_markdown,
+        render_summary_text,
+        summarize_trades,
+        summary_to_dict,
+    )
+
+    init_db()
+    query = "SELECT * FROM paper_trades WHERE status='closed'"
+    params: tuple[Any, ...] = ()
+    if args.days:
+        query += " AND exit_ts >= ?"
+        params = (int(time.time()) - args.days * 86400,)
+    with conn() as c:
+        rows = [dict(r) for r in c.execute(query, params).fetchall()]
+
+    summary = summarize_trades(rows)
+    title = (
+        "Paper-trade performance" if not args.days else f"Paper-trade performance ({args.days}d)"
+    )
+    if args.format == "json":
+        print(json.dumps(summary_to_dict(summary), indent=2))
+    elif args.format == "markdown":
+        print(render_summary_markdown(summary, title=title))
+    else:
+        print(render_summary_text(summary, title=title))
+    return 0
+
+
+def _int_list(raw: str, *, flag: str) -> list[int]:
+    """Parse a comma-separated list of ints, e.g. ``"2,3,4"``."""
+    values: list[int] = []
+    for chunk in raw.split(","):
+        text = chunk.strip()
+        if not text:
+            continue
+        try:
+            values.append(int(text))
+        except ValueError as exc:
+            raise SystemExit(f"{flag}: '{text}' is not an integer") from exc
+    return values
+
+
+def _cmd_calibrate(args: argparse.Namespace, cfg: Config) -> int:
+    from clusterdetect.analytics.calibrate import (
+        best_rows,
+        render_rows_markdown,
+        render_rows_text,
+        rows_to_dicts,
+        sweep,
+    )
+
+    init_db()
+    end_ts = int(time.time())
+    start_ts = end_ts - args.days * 86400
+    with conn() as c:
+        swaps = [
+            dict(r)
+            for r in c.execute(
+                "SELECT * FROM swaps WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp",
+                (start_ts, end_ts),
+            ).fetchall()
+        ]
+        scores = {
+            r["address"]: r["score"] or 1
+            for r in c.execute("SELECT address, score FROM wallets").fetchall()
+        }
+
+    rows = sweep(
+        swaps,
+        scores,
+        min_wallets=_int_list(args.min_wallets, flag="--min-wallets"),
+        window_minutes=_int_list(args.window, flag="--window"),
+        min_total_score=_int_list(args.score, flag="--score"),
+        min_usd=cfg.min_buy_usd,
+    )
+    title = f"Threshold sensitivity over {len(swaps)} swaps ({args.days}d)"
+    if args.format == "json":
+        print(json.dumps(rows_to_dicts(rows), indent=2))
+        return 0
+    if args.format == "markdown":
+        print(render_rows_markdown(rows, title=title))
+    else:
+        print(render_rows_text(rows, title=title))
+
+    picks = best_rows(rows, limit=args.top)
+    if picks:
+        print()
+        print("Most selective combinations that still detect something:")
+        for row in picks:
+            print(
+                f"  wallets>={row.min_wallets} window={row.window_minutes}m "
+                f"score>={row.min_total_score} -> {row.clusters} clusters "
+                f"over {row.tokens} tokens"
+            )
+    return 0
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     init_db()
     rows = _cluster_rows_for_output()
@@ -830,6 +929,24 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("days", nargs="?", type=int, default=7)
     p.add_argument("--json", action="store_true")
 
+    p = sub.add_parser(
+        "stats", help="quality metrics over closed paper trades (offline, read-only)"
+    )
+    p.add_argument("days", nargs="?", type=int, default=0, help="last N days (0 = all trades)")
+    p.add_argument("--format", choices=["text", "json", "markdown"], default="text")
+
+    p = sub.add_parser(
+        "calibrate", help="what-if grid of detector thresholds over stored swaps (offline)"
+    )
+    p.add_argument("days", nargs="?", type=int, default=30)
+    p.add_argument("--min-wallets", default="2,3,4", help="comma-separated wallet thresholds")
+    p.add_argument("--window", default="5,15,30", help="comma-separated window sizes in minutes")
+    p.add_argument("--score", default="4,6,9", help="comma-separated wallet-score thresholds")
+    p.add_argument("--format", choices=["text", "json", "markdown"], default="text")
+    p.add_argument(
+        "--top", type=int, default=3, help="how many selective combinations to highlight"
+    )
+
     p = sub.add_parser("export")
     p.add_argument("--format", choices=["csv", "json"], default="csv")
     p.add_argument("--out")
@@ -880,6 +997,10 @@ async def _async_main(argv: list[str] | None = None) -> int:
         return _cmd_status()
     if args.cmd == "pnl":
         return _cmd_pnl(args)
+    if args.cmd == "stats":
+        return _cmd_stats(args)
+    if args.cmd == "calibrate":
+        return _cmd_calibrate(args, cfg)
     if args.cmd == "export":
         return _cmd_export(args)
     if args.cmd == "rank":
